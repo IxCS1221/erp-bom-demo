@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>盛毅 S-ERP 拆卸單功能原型</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+
+/* ── 模擬種子資料：依盛毅實際經銷品牌（復盛空壓機、HiKOKI 電動工具）設計 ── */
+const SEED_PRODUCTS = [
+  { id: "P001", name: "空壓機 ACX-100（復盛）", brand: "復盛", type: "parent", stock: 12, avgCost: 8000 },
+  { id: "P002", name: "電動工具組 DS18DBL（HiKOKI）", brand: "HiKOKI", type: "parent", stock: 20, avgCost: 3200 },
+  { id: "C001", name: "馬達", brand: "—", type: "component", stock: 3, avgCost: 0 },
+  { id: "C002", name: "氣桶", brand: "—", type: "component", stock: 3, avgCost: 0 },
+  { id: "C003", name: "壓力開關", brand: "—", type: "component", stock: 5, avgCost: 0 },
+  { id: "C004", name: "鋰電池組 18V", brand: "—", type: "component", stock: 8, avgCost: 0 },
+  { id: "C005", name: "充電器", brand: "—", type: "component", stock: 8, avgCost: 0 },
+  { id: "C006", name: "起子主機", brand: "—", type: "component", stock: 8, avgCost: 0 },
+];
+
+const SEED_BOM = [
+  { parentId: "P001", childId: "C001", qty: 1, costPct: 45 },
+  { parentId: "P001", childId: "C002", qty: 1, costPct: 30 },
+  { parentId: "P001", childId: "C003", qty: 2, costPct: 25 },
+  { parentId: "P002", childId: "C006", qty: 1, costPct: 50 },
+  { parentId: "P002", childId: "C004", qty: 2, costPct: 35 },
+  { parentId: "P002", childId: "C005", qty: 1, costPct: 15 },
+];
+
+const fmt = (n) => Math.round(n).toLocaleString("zh-TW");
+
+function Badge({ children, color }) {
+  const colors = {
+    slate: "bg-slate-100 text-slate-600",
+    indigo: "bg-indigo-50 text-indigo-700 border border-indigo-100",
+    teal: "bg-teal-50 text-teal-700 border border-teal-100",
+    rose: "bg-rose-50 text-rose-700 border border-rose-100",
+  };
+  return <span className={`text-xs px-2 py-0.5 rounded font-semibold ${colors[color] || colors.slate}`}>{children}</span>;
+}
+
+function Header({ activeTab, setActiveTab }) {
+  const tabs = [
+    { key: "products", label: "商品總覽" },
+    { key: "bom", label: "BOM 設定" },
+    { key: "disassemble", label: "拆卸單" },
+    { key: "history", label: "異動歷程" },
+  ];
+  return (
+    <header className="bg-slate-900 text-white shadow-md px-6 py-4 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-40">
+      <div className="flex items-center gap-3">
+        <div className="bg-gradient-to-tr from-teal-500 to-emerald-400 p-2.5 rounded-xl shadow-lg shadow-teal-950/40 text-lg">🔧</div>
+        <div>
+          <div className="font-bold text-lg leading-tight">盛毅 S-ERP 拆卸單功能原型</div>
+          <div className="text-xs text-slate-400">資料為模擬示範，非即時連線真實系統</div>
+        </div>
+      </div>
+      <nav className="flex gap-2">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              activeTab === t.key ? "bg-teal-500 text-slate-950 shadow-md" : "text-slate-300 hover:text-white"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+    </header>
+  );
+}
+
+function ProductsTab({ products }) {
+  const parents = products.filter((p) => p.type === "parent");
+  const components = products.filter((p) => p.type === "component");
+  const Table = ({ rows }) => (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+          <tr>
+            <th className="py-3 px-4 text-left">編號</th>
+            <th className="py-3 px-4 text-left">名稱</th>
+            <th className="py-3 px-4 text-right">目前庫存</th>
+            <th className="py-3 px-4 text-right">平均成本</th>
+            <th className="py-3 px-4 text-right">庫存價值</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {rows.map((p) => (
+            <tr key={p.id} className="hover:bg-slate-50">
+              <td className="py-3 px-4 font-mono text-slate-500">{p.id}</td>
+              <td className="py-3 px-4 font-medium text-slate-800">{p.name}</td>
+              <td className="py-3 px-4 text-right">{p.stock}</td>
+              <td className="py-3 px-4 text-right">{fmt(p.avgCost)}</td>
+              <td className="py-3 px-4 text-right font-semibold">{fmt(p.stock * p.avgCost)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+  return (
+    <div className="max-w-5xl mx-auto p-6 space-y-8">
+      <div>
+        <div className="flex items-center gap-2 mb-3"><Badge color="indigo">主商品（可拆解）</Badge></div>
+        <Table rows={parents} />
+      </div>
+      <div>
+        <div className="flex items-center gap-2 mb-3"><Badge color="teal">零件</Badge></div>
+        <Table rows={components} />
+      </div>
+    </div>
+  );
+}
+
+function BomTab({ products, bom }) {
+  const parents = products.filter((p) => p.type === "parent");
+  const nameOf = (id) => products.find((p) => p.id === id)?.name || id;
+  return (
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <p className="text-sm text-slate-500">每個主商品拆解後對應的零件、數量與成本分攤比例（各主商品的分攤比例總和應為 100%）</p>
+      {parents.map((parent) => {
+        const lines = bom.filter((b) => b.parentId === parent.id);
+        const pctSum = lines.reduce((s, b) => s + b.costPct, 0);
+        return (
+          <div key={parent.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+              <div className="font-bold text-slate-800">{parent.name}</div>
+              <Badge color={pctSum === 100 ? "teal" : "rose"}>分攤比例合計 {pctSum}%</Badge>
+            </div>
+            <table className="w-full text-sm">
+              <thead className="text-slate-500 text-xs uppercase">
+                <tr>
+                  <th className="py-2.5 px-5 text-left">零件</th>
+                  <th className="py-2.5 px-5 text-right">拆解出數量</th>
+                  <th className="py-2.5 px-5 text-right">成本分攤比例</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {lines.map((l) => (
+                  <tr key={l.childId}>
+                    <td className="py-2.5 px-5">{nameOf(l.childId)}</td>
+                    <td className="py-2.5 px-5 text-right">{l.qty}</td>
+                    <td className="py-2.5 px-5 text-right">{l.costPct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DisassembleTab({ products, bom, onPost, lastError }) {
+  const parents = products.filter((p) => p.type === "parent");
+  const [parentId, setParentId] = useState(parents[0]?.id || "");
+  const [qty, setQty] = useState(1);
+
+  const parent = products.find((p) => p.id === parentId);
+  const bomLines = bom.filter((b) => b.parentId === parentId);
+  const pctSum = bomLines.reduce((s, b) => s + b.costPct, 0);
+
+  const preview = useMemo(() => {
+    if (!parent || !qty || qty <= 0) return null;
+    const totalParentCost = parent.avgCost * qty;
+    const lines = bomLines.map((b) => {
+      const child = products.find((p) => p.id === b.childId);
+      const addQty = b.qty * qty;
+      const allocatedCost = (totalParentCost * b.costPct) / 100;
+      const unitCost = addQty > 0 ? allocatedCost / addQty : 0;
+      const newStock = child.stock + addQty;
+      const newAvgCost = newStock > 0 ? (child.stock * child.avgCost + allocatedCost) / newStock : 0;
+      return { child, addQty, allocatedCost, unitCost, newStock, newAvgCost };
+    });
+    return { totalParentCost, lines };
+  }, [parentId, qty, products, bom]);
+
+  const stockEnough = parent && qty > 0 && parent.stock >= qty;
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">主商品</label>
+            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm">
+              {parents.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}（庫存 {p.stock}）</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">拆解數量</label>
+            <input type="number" min="1" value={qty} onChange={(e) => setQty(parseInt(e.target.value || "0", 10))}
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm" />
+          </div>
+        </div>
+        {pctSum !== 100 && (
+          <p className="text-xs text-rose-600">⚠ 這個主商品的 BOM 成本分攤比例合計不是 100%（目前 {pctSum}%），請先到「BOM 設定」確認</p>
+        )}
+        {!stockEnough && parent && (
+          <p className="text-xs text-rose-600">⚠ 主商品目前庫存只有 {parent.stock}，不足以拆解 {qty} 個</p>
+        )}
+      </div>
+
+      {preview && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 font-bold text-slate-800">
+            預覽展開結果 ・ 主商品成本 {fmt(preview.totalParentCost)} 元將依比例分攤到零件
+          </div>
+          <table className="w-full text-sm">
+            <thead className="text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="py-2.5 px-5 text-left">零件</th>
+                <th className="py-2.5 px-5 text-right">展開數量</th>
+                <th className="py-2.5 px-5 text-right">分攤成本（合計）</th>
+                <th className="py-2.5 px-5 text-right">分攤後單位成本</th>
+                <th className="py-2.5 px-5 text-right">過帳後庫存</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {preview.lines.map((l) => (
+                <tr key={l.child.id}>
+                  <td className="py-2.5 px-5">{l.child.name}</td>
+                  <td className="py-2.5 px-5 text-right text-teal-700 font-semibold">+{l.addQty}</td>
+                  <td className="py-2.5 px-5 text-right">{fmt(l.allocatedCost)}</td>
+                  <td className="py-2.5 px-5 text-right">{fmt(l.unitCost)}</td>
+                  <td className="py-2.5 px-5 text-right">{l.child.stock} → {l.newStock}</td>
+                </tr>
+              ))}
+              <tr className="bg-rose-50/40">
+                <td className="py-2.5 px-5 font-semibold">{parent.name}</td>
+                <td className="py-2.5 px-5 text-right text-rose-700 font-semibold">-{qty}</td>
+                <td className="py-2.5 px-5 text-right" colSpan="3">{parent.stock} → {parent.stock - qty}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div className="p-5 border-t border-slate-100 flex justify-end">
+            <button
+              disabled={!stockEnough || pctSum !== 100}
+              onClick={() => onPost(parentId, qty, preview)}
+              className="px-6 py-2.5 bg-slate-900 text-white hover:bg-slate-800 rounded-xl text-sm font-semibold shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              確認過帳
+            </button>
+          </div>
+        </div>
+      )}
+      {lastError && <p className="text-sm text-rose-600">{lastError}</p>}
+    </div>
+  );
+}
+
+function HistoryTab({ transactions }) {
+  if (transactions.length === 0) {
+    return <div className="max-w-4xl mx-auto p-6 text-center text-slate-400 py-16">尚無拆卸單記錄，到「拆卸單」分頁試試過帳吧</div>;
+  }
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-4">
+      {transactions.slice().reverse().map((t) => (
+        <div key={t.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-sm">
+            <div><span className="font-mono font-bold text-slate-800">{t.id}</span><span className="text-slate-400 ml-3">{t.date}</span></div>
+            <Badge color="indigo">{t.parentName} ×{t.parentQty}</Badge>
+          </div>
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-slate-100">
+              {t.lines.map((l) => (
+                <tr key={l.childId}>
+                  <td className="py-2 px-5">{l.childName}</td>
+                  <td className="py-2 px-5 text-right text-teal-700">+{l.qty}</td>
+                  <td className="py-2 px-5 text-right text-slate-500">分攤成本 {fmt(l.allocatedCost)} 元</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function App() {
+  const [activeTab, setActiveTab] = useState("products");
+  const [products, setProducts] = useState(SEED_PRODUCTS);
+  const [bom] = useState(SEED_BOM);
+  const [transactions, setTransactions] = useState([]);
+  const [toast, setToast] = useState("");
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2500);
+  };
+
+  const handleReset = () => {
+    setProducts(SEED_PRODUCTS.map((p) => ({ ...p })));
+    setTransactions([]);
+    showToast("已重置示範資料");
+  };
+
+  const handlePost = (parentId, qty, preview) => {
+    const parent = products.find((p) => p.id === parentId);
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.id === parentId) return { ...p, stock: p.stock - qty };
+        const line = preview.lines.find((l) => l.child.id === p.id);
+        if (line) return { ...p, stock: line.newStock, avgCost: line.newAvgCost };
+        return p;
+      })
+    );
+    setTransactions((prev) => [
+      ...prev,
+      {
+        id: "DA-" + String(prev.length + 1).padStart(3, "0"),
+        date: new Date().toLocaleString("zh-TW"),
+        parentName: parent.name,
+        parentQty: qty,
+        lines: preview.lines.map((l) => ({ childId: l.child.id, childName: l.child.name, qty: l.addQty, allocatedCost: l.allocatedCost })),
+      },
+    ]);
+    showToast(`已過帳：${parent.name} ×${qty} 拆解完成`);
+  };
+
+  return (
+    <div>
+      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+      <div className="max-w-5xl mx-auto px-6 pt-4 flex justify-end">
+        <button onClick={handleReset} className="text-xs text-slate-400 hover:text-slate-600 underline">重置示範資料</button>
+      </div>
+      {activeTab === "products" && <ProductsTab products={products} />}
+      {activeTab === "bom" && <BomTab products={products} bom={bom} />}
+      {activeTab === "disassemble" && <DisassembleTab products={products} bom={bom} onPost={handlePost} />}
+      {activeTab === "history" && <HistoryTab transactions={transactions} />}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl border border-slate-700 text-sm">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
