@@ -53,6 +53,7 @@ function Header({ activeTab, setActiveTab }) {
     { key: "products", label: "商品總覽" },
     { key: "bom", label: "BOM 設定" },
     { key: "disassemble", label: "拆卸單" },
+    { key: "assemble", label: "組裝單" },
     { key: "history", label: "異動歷程" },
   ];
   return (
@@ -264,31 +265,131 @@ function DisassembleTab({ products, bom, onPost, lastError }) {
   );
 }
 
+function AssembleTab({ products, bom, onPost }) {
+  const parents = products.filter((p) => p.type === "parent");
+  const [parentId, setParentId] = useState(parents[0]?.id || "");
+  const [qty, setQty] = useState(1);
+
+  const parent = products.find((p) => p.id === parentId);
+  const bomLines = bom.filter((b) => b.parentId === parentId);
+
+  const preview = useMemo(() => {
+    if (!parent || !qty || qty <= 0) return null;
+    const lines = bomLines.map((b) => {
+      const child = products.find((p) => p.id === b.childId);
+      const needQty = b.qty * qty;
+      const cost = needQty * child.avgCost;
+      const newStock = child.stock - needQty;
+      return { child, needQty, cost, newStock };
+    });
+    const totalCost = lines.reduce((s, l) => s + l.cost, 0);
+    const newParentStock = parent.stock + qty;
+    const newParentAvgCost = newParentStock > 0 ? (parent.stock * parent.avgCost + totalCost) / newParentStock : 0;
+    return { lines, totalCost, newParentStock, newParentAvgCost };
+  }, [parentId, qty, products, bom]);
+
+  const stockEnough = preview && preview.lines.every((l) => l.newStock >= 0);
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">要組裝出的主商品</label>
+            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm">
+              {parents.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}（目前庫存 {p.stock}）</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">組裝數量</label>
+            <input type="number" min="1" value={qty} onChange={(e) => setQty(parseInt(e.target.value || "0", 10))}
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm" />
+          </div>
+        </div>
+        {!stockEnough && preview && (
+          <p className="text-xs text-rose-600">⚠ 部分零件庫存不足，無法組裝 {qty} 個{parent?.name}</p>
+        )}
+      </div>
+
+      {preview && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 font-bold text-slate-800">
+            預覽組裝結果 ・ 各零件成本將依用量加總成主商品成本
+          </div>
+          <table className="w-full text-sm">
+            <thead className="text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="py-2.5 px-5 text-left">零件</th>
+                <th className="py-2.5 px-5 text-right">消耗數量</th>
+                <th className="py-2.5 px-5 text-right">消耗成本</th>
+                <th className="py-2.5 px-5 text-right">過帳後庫存</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {preview.lines.map((l) => (
+                <tr key={l.child.id} className={l.newStock < 0 ? "bg-rose-50/40" : ""}>
+                  <td className="py-2.5 px-5">{l.child.name}</td>
+                  <td className="py-2.5 px-5 text-right text-rose-700 font-semibold">-{l.needQty}</td>
+                  <td className="py-2.5 px-5 text-right">{fmt(l.cost)}</td>
+                  <td className="py-2.5 px-5 text-right">{l.child.stock} → {l.newStock}</td>
+                </tr>
+              ))}
+              <tr className="bg-teal-50/40">
+                <td className="py-2.5 px-5 font-semibold">{parent.name}</td>
+                <td className="py-2.5 px-5 text-right text-teal-700 font-semibold">+{qty}</td>
+                <td className="py-2.5 px-5 text-right">合計 {fmt(preview.totalCost)}</td>
+                <td className="py-2.5 px-5 text-right">{parent.stock} → {preview.newParentStock}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div className="p-5 border-t border-slate-100 flex justify-end">
+            <button
+              disabled={!stockEnough}
+              onClick={() => onPost(parentId, qty, preview)}
+              className="px-6 py-2.5 bg-slate-900 text-white hover:bg-slate-800 rounded-xl text-sm font-semibold shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              確認過帳
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistoryTab({ transactions }) {
   if (transactions.length === 0) {
-    return <div className="max-w-4xl mx-auto p-6 text-center text-slate-400 py-16">尚無拆卸單記錄，到「拆卸單」分頁試試過帳吧</div>;
+    return <div className="max-w-4xl mx-auto p-6 text-center text-slate-400 py-16">尚無異動記錄，到「拆卸單」或「組裝單」分頁試試過帳吧</div>;
   }
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-4">
-      {transactions.slice().reverse().map((t) => (
-        <div key={t.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-sm">
-            <div><span className="font-mono font-bold text-slate-800">{t.id}</span><span className="text-slate-400 ml-3">{t.date}</span></div>
-            <Badge color="indigo">{t.parentName} ×{t.parentQty}</Badge>
+      {transactions.slice().reverse().map((t) => {
+        const isAssemble = t.type === "assemble";
+        return (
+          <div key={t.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-sm">
+              <div><span className="font-mono font-bold text-slate-800">{t.id}</span><span className="text-slate-400 ml-3">{t.date}</span></div>
+              <div className="flex items-center gap-2">
+                <Badge color={isAssemble ? "teal" : "rose"}>{isAssemble ? "組裝單" : "拆卸單"}</Badge>
+                <Badge color="indigo">{t.parentName} {isAssemble ? "+" : "-"}{t.parentQty}</Badge>
+              </div>
+            </div>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {t.lines.map((l) => (
+                  <tr key={l.childId}>
+                    <td className="py-2 px-5">{l.childName}</td>
+                    <td className={`py-2 px-5 text-right ${isAssemble ? "text-rose-700" : "text-teal-700"}`}>{isAssemble ? "-" : "+"}{l.qty}</td>
+                    <td className="py-2 px-5 text-right text-slate-500">{isAssemble ? "消耗成本" : "分攤成本"} {fmt(l.allocatedCost)} 元</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-100">
-              {t.lines.map((l) => (
-                <tr key={l.childId}>
-                  <td className="py-2 px-5">{l.childName}</td>
-                  <td className="py-2 px-5 text-right text-teal-700">+{l.qty}</td>
-                  <td className="py-2 px-5 text-right text-slate-500">分攤成本 {fmt(l.allocatedCost)} 元</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -311,7 +412,7 @@ function App() {
     showToast("已重置示範資料");
   };
 
-  const handlePost = (parentId, qty, preview) => {
+  const handleDisassemble = (parentId, qty, preview) => {
     const parent = products.find((p) => p.id === parentId);
     setProducts((prev) =>
       prev.map((p) => {
@@ -324,7 +425,8 @@ function App() {
     setTransactions((prev) => [
       ...prev,
       {
-        id: "DA-" + String(prev.length + 1).padStart(3, "0"),
+        id: "DA-" + String(prev.filter((t) => t.type === "disassemble").length + 1).padStart(3, "0"),
+        type: "disassemble",
         date: new Date().toLocaleString("zh-TW"),
         parentName: parent.name,
         parentQty: qty,
@@ -332,6 +434,30 @@ function App() {
       },
     ]);
     showToast(`已過帳：${parent.name} ×${qty} 拆解完成`);
+  };
+
+  const handleAssemble = (parentId, qty, preview) => {
+    const parent = products.find((p) => p.id === parentId);
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.id === parentId) return { ...p, stock: preview.newParentStock, avgCost: preview.newParentAvgCost };
+        const line = preview.lines.find((l) => l.child.id === p.id);
+        if (line) return { ...p, stock: line.newStock };
+        return p;
+      })
+    );
+    setTransactions((prev) => [
+      ...prev,
+      {
+        id: "AS-" + String(prev.filter((t) => t.type === "assemble").length + 1).padStart(3, "0"),
+        type: "assemble",
+        date: new Date().toLocaleString("zh-TW"),
+        parentName: parent.name,
+        parentQty: qty,
+        lines: preview.lines.map((l) => ({ childId: l.child.id, childName: l.child.name, qty: l.needQty, allocatedCost: l.cost })),
+      },
+    ]);
+    showToast(`已過帳：組裝 ${parent.name} ×${qty} 完成`);
   };
 
   return (
@@ -342,7 +468,8 @@ function App() {
       </div>
       {activeTab === "products" && <ProductsTab products={products} />}
       {activeTab === "bom" && <BomTab products={products} bom={bom} />}
-      {activeTab === "disassemble" && <DisassembleTab products={products} bom={bom} onPost={handlePost} />}
+      {activeTab === "disassemble" && <DisassembleTab products={products} bom={bom} onPost={handleDisassemble} />}
+      {activeTab === "assemble" && <AssembleTab products={products} bom={bom} onPost={handleAssemble} />}
       {activeTab === "history" && <HistoryTab transactions={transactions} />}
       {toast && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl border border-slate-700 text-sm">
