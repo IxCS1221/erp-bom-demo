@@ -125,19 +125,112 @@ function ProductsTab({ products }) {
   );
 }
 
-function BomTab({ products, bom }) {
+function AddProductForm({ onAdd }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState("component");
+  const [stock, setStock] = useState(0);
+  const [avgCost, setAvgCost] = useState(0);
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onAdd(name.trim(), type, stock, avgCost);
+    setName(""); setStock(0); setAvgCost(0);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+      <div className="font-bold text-slate-800 mb-3">① 新增商品到系統</div>
+      <div className="grid grid-cols-4 gap-3 items-end">
+        <div className="col-span-2">
+          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">商品名稱</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例：氣管接頭"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">類型</label>
+          <select value={type} onChange={(e) => setType(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="component">零件</option>
+            <option value="parent">主商品（可拆解）</option>
+          </select>
+        </div>
+        <button onClick={submit} className="px-4 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-sm font-semibold">新增商品</button>
+        <div>
+          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">初始庫存</label>
+          <input type="number" value={stock} onChange={(e) => setStock(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">平均成本</label>
+          <input type="number" value={avgCost} onChange={(e) => setAvgCost(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PromoteForm({ candidates, onPromote }) {
+  const [productId, setProductId] = useState(candidates[0]?.id || "");
+  if (candidates.length === 0) return null;
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+      <div className="font-bold text-slate-800 mb-3">② 把既有商品標記為「可拆解主商品」</div>
+      <div className="flex gap-3 items-end">
+        <select value={productId} onChange={(e) => setProductId(e.target.value)} className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          {candidates.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <button onClick={() => onPromote(productId)} className="px-4 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-sm font-semibold whitespace-nowrap">設為可拆解主商品</button>
+      </div>
+    </div>
+  );
+}
+
+function AddBomLineRow({ parent, products, bom, onAdd }) {
+  const usedChildIds = bom.filter((b) => b.parentId === parent.id).map((b) => b.childId);
+  const candidates = products.filter((p) => p.id !== parent.id && !usedChildIds.includes(p.id));
+  const [childId, setChildId] = useState(candidates[0]?.id || "");
+  const [qty, setQty] = useState(1);
+  const [costPct, setCostPct] = useState(0);
+
+  if (candidates.length === 0) return <p className="px-5 py-3 text-xs text-slate-400">（所有商品都已加入這個 BOM，或請先新增更多商品）</p>;
+
+  return (
+    <div className="px-5 py-3 flex gap-2 items-end bg-slate-50/60">
+      <select value={childId} onChange={(e) => setChildId(e.target.value)} className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm">
+        {candidates.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="數量"
+        className="w-20 px-3 py-1.5 border border-slate-300 rounded-lg text-sm" />
+      <input type="number" min="0" max="100" value={costPct} onChange={(e) => setCostPct(e.target.value)} placeholder="分攤%"
+        className="w-24 px-3 py-1.5 border border-slate-300 rounded-lg text-sm" />
+      <button
+        onClick={() => { onAdd(parent.id, childId, qty, costPct); setQty(1); setCostPct(0); }}
+        className="px-4 py-1.5 bg-teal-600 text-white hover:bg-teal-700 rounded-lg text-sm font-semibold whitespace-nowrap"
+      >+ 新增零件</button>
+    </div>
+  );
+}
+
+function BomTab({ products, bom, onAddProduct, onPromote, onAddBomLine, onRemoveBomLine }) {
   const parents = products.filter((p) => p.type === "parent");
+  const nonParents = products.filter((p) => p.type !== "parent");
   const nameOf = (id) => products.find((p) => p.id === id)?.name || id;
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <p className="text-sm text-slate-500">每個主商品拆解後對應的零件、數量與成本分攤比例（各主商品的分攤比例總和應為 100%）</p>
+      <p className="text-sm text-slate-500">每個主商品拆解後對應的零件、數量與成本分攤比例（各主商品的分攤比例總和應為 100%）。商品要先存在、並標記為「可拆解主商品」，才能設定它的 BOM。</p>
+
+      <AddProductForm onAdd={onAddProduct} />
+      <PromoteForm candidates={nonParents} onPromote={onPromote} />
+
+      {parents.length === 0 && (
+        <p className="text-sm text-slate-400 text-center py-8">目前還沒有可拆解主商品，先用上面①②新增、標記一個吧</p>
+      )}
+
       {parents.map((parent) => {
         const lines = bom.filter((b) => b.parentId === parent.id);
-        const pctSum = lines.reduce((s, b) => s + b.costPct, 0);
+        const pctSum = lines.reduce((s, b) => s + Number(b.costPct), 0);
         return (
           <div key={parent.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-              <div className="font-bold text-slate-800">{parent.name}</div>
+              <div className="font-bold text-slate-800">③ {parent.name} 的 BOM</div>
               <Badge color={pctSum === 100 ? "teal" : "rose"}>分攤比例合計 {pctSum}%</Badge>
             </div>
             <table className="w-full text-sm">
@@ -146,6 +239,7 @@ function BomTab({ products, bom }) {
                   <th className="py-2.5 px-5 text-left">零件</th>
                   <th className="py-2.5 px-5 text-right">拆解出數量</th>
                   <th className="py-2.5 px-5 text-right">成本分攤比例</th>
+                  <th className="py-2.5 px-5 text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -154,10 +248,17 @@ function BomTab({ products, bom }) {
                     <td className="py-2.5 px-5">{nameOf(l.childId)}</td>
                     <td className="py-2.5 px-5 text-right">{l.qty}</td>
                     <td className="py-2.5 px-5 text-right">{l.costPct}%</td>
+                    <td className="py-2.5 px-5 text-right">
+                      <button onClick={() => onRemoveBomLine(parent.id, l.childId)} className="text-rose-500 hover:text-rose-700 text-xs font-semibold">移除 ✕</button>
+                    </td>
                   </tr>
                 ))}
+                {lines.length === 0 && (
+                  <tr><td colSpan="4" className="py-3 px-5 text-slate-400 text-xs">這個主商品還沒有任何零件，從下方新增</td></tr>
+                )}
               </tbody>
             </table>
+            <AddBomLineRow parent={parent} products={products} bom={bom} onAdd={onAddBomLine} />
           </div>
         );
       })}
@@ -397,9 +498,10 @@ function HistoryTab({ transactions }) {
 function App() {
   const [activeTab, setActiveTab] = useState("products");
   const [products, setProducts] = useState(SEED_PRODUCTS);
-  const [bom] = useState(SEED_BOM);
+  const [bom, setBom] = useState(SEED_BOM);
   const [transactions, setTransactions] = useState([]);
   const [toast, setToast] = useState("");
+  const [nextProductSeq, setNextProductSeq] = useState(1);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -408,8 +510,32 @@ function App() {
 
   const handleReset = () => {
     setProducts(SEED_PRODUCTS.map((p) => ({ ...p })));
+    setBom(SEED_BOM.map((b) => ({ ...b })));
     setTransactions([]);
+    setNextProductSeq(1);
     showToast("已重置示範資料");
+  };
+
+  const handleAddProduct = (name, type, stock, avgCost) => {
+    const id = "N" + String(nextProductSeq).padStart(3, "0");
+    setNextProductSeq((n) => n + 1);
+    setProducts((prev) => [...prev, { id, name, brand: "—", type, stock: Number(stock) || 0, avgCost: Number(avgCost) || 0 }]);
+    showToast(`已新增商品：${name}`);
+  };
+
+  const handlePromote = (productId) => {
+    setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, type: "parent" } : p)));
+    const name = products.find((p) => p.id === productId)?.name;
+    showToast(`已將「${name}」標記為可拆解主商品`);
+  };
+
+  const handleAddBomLine = (parentId, childId, qty, costPct) => {
+    if (!childId || Number(qty) <= 0) return;
+    setBom((prev) => [...prev, { parentId, childId, qty: Number(qty), costPct: Number(costPct) || 0 }]);
+  };
+
+  const handleRemoveBomLine = (parentId, childId) => {
+    setBom((prev) => prev.filter((b) => !(b.parentId === parentId && b.childId === childId)));
   };
 
   const handleDisassemble = (parentId, qty, preview) => {
@@ -467,7 +593,16 @@ function App() {
         <button onClick={handleReset} className="text-xs text-slate-400 hover:text-slate-600 underline">重置示範資料</button>
       </div>
       {activeTab === "products" && <ProductsTab products={products} />}
-      {activeTab === "bom" && <BomTab products={products} bom={bom} />}
+      {activeTab === "bom" && (
+        <BomTab
+          products={products}
+          bom={bom}
+          onAddProduct={handleAddProduct}
+          onPromote={handlePromote}
+          onAddBomLine={handleAddBomLine}
+          onRemoveBomLine={handleRemoveBomLine}
+        />
+      )}
       {activeTab === "disassemble" && <DisassembleTab products={products} bom={bom} onPost={handleDisassemble} />}
       {activeTab === "assemble" && <AssembleTab products={products} bom={bom} onPost={handleAssemble} />}
       {activeTab === "history" && <HistoryTab transactions={transactions} />}
